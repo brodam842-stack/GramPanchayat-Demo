@@ -177,7 +177,7 @@ export default function BlankFormsPage() {
                   style={{ minHeight: "120px", resize: "vertical", lineHeight: 1.4 }}
                 />
                 <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                  💡 These will be sent to the citizen's WhatsApp alongside the PDF.
+                  💡 These will be sent to the citizen&apos;s WhatsApp alongside the PDF.
                 </span>
               </div>
 

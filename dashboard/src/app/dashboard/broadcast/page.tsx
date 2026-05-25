@@ -171,7 +171,7 @@ export default function BroadcastPage() {
       setReportDetails(report.details || []);
 
       if (report.failed > 0) {
-        showToast("warning", `Broadcast finished. Success: ${report.success}, Failed: ${report.failed}`);
+        showToast("info", `Broadcast finished. Success: ${report.success}, Failed: ${report.failed}`);
       } else {
         showToast("success", `Successfully broadcasted to all ${report.success} citizens!`);
       }
