@@ -224,4 +224,16 @@ export async function triggerMockTaxWebhook(propertyId: string) {
   });
 }
 
+export async function deleteTaxRecord(id: string) {
+  return apiFetch(`/api/tax/record/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export async function deleteAllTaxRecords() {
+  return apiFetch("/api/tax/records/all", {
+    method: "DELETE"
+  });
+}
+
 export { apiFetch };

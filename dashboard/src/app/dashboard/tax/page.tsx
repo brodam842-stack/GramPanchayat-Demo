@@ -6,7 +6,9 @@ import {
   updateTaxRecord, 
   importTaxExcel, 
   circulateTaxTemplate,
-  triggerMockTaxWebhook 
+  triggerMockTaxWebhook,
+  deleteTaxRecord,
+  deleteAllTaxRecords
 } from "@/lib/api";
 
 interface TaxRecord {
@@ -230,6 +232,51 @@ export default function PropertyTaxPage() {
     }
   }
 
+  async function handleDeleteRecordClick(record: TaxRecord) {
+    if (!window.confirm(`⚠️ Are you absolutely sure you want to permanently delete the tax record for Property ID: "${record.property_id}"?\n\nOwner: ${record.owner_name}\nDue: ₹${record.due_amount}`)) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await deleteTaxRecord(record.id);
+      showToast(`Tax record for Property ID "${record.property_id}" deleted successfully.`, "success");
+      
+      if (selectedRecordForPreview?.id === record.id) {
+        setSelectedRecordForPreview(null);
+      }
+      
+      loadRecords();
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete tax record", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleDeleteAllClick() {
+    if (!window.confirm("⚠️ WARNING: This will permanently delete ALL property tax records from the database. This action CANNOT be undone!\n\nAre you absolutely sure you want to clear all records?")) {
+      return;
+    }
+    
+    if (!window.confirm("FINAL CONFIRMATION REQUIRED: Click OK to delete all tax data permanently.")) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await deleteAllTaxRecords();
+      showToast(res.message || "All property tax records have been successfully cleared.", "success");
+      setSelectedRecordForPreview(null);
+      setPage(1);
+      loadRecords();
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete all tax records", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   // Dynamic Whatsapp preview rendering
   function renderWhatsAppPreview() {
     const defaultPreview: TaxRecord = {
@@ -293,8 +340,15 @@ export default function PropertyTaxPage() {
           >
             📊 {isImporting ? "Importing Excel..." : "Import Tax Excel"}
           </button>
-          <button onClick={openAddModal} className="btn btn-primary">
+          <button onClick={openAddModal} className="btn btn-primary mr-2" style={{ marginRight: "8px" }}>
             ➕ Add Tax Entry
+          </button>
+          <button 
+            onClick={handleDeleteAllClick} 
+            disabled={totalRecords === 0 || isLoading} 
+            className="btn btn-danger"
+          >
+            🗑️ Delete All Records
           </button>
         </div>
       </div>
@@ -372,7 +426,7 @@ export default function PropertyTaxPage() {
                   placeholder="🔍 Search Owner or Property ID..." 
                   value={search} 
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                  className="form-control"
+                  className="form-input"
                   style={{ fontSize: "0.85rem", height: "36px" }}
                 />
               </div>
@@ -380,7 +434,7 @@ export default function PropertyTaxPage() {
                 <select 
                   value={statusFilter} 
                   onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                  className="form-control text-capitalize"
+                  className="form-select text-capitalize"
                   style={{ fontSize: "0.85rem", height: "36px" }}
                 >
                   <option value="">All Statuses</option>
@@ -458,10 +512,18 @@ export default function PropertyTaxPage() {
                           )}
                           <button 
                             onClick={(e) => { e.stopPropagation(); openEditModal(record); }} 
-                            className="btn btn-primary btn-sm"
-                            style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                            className="btn btn-primary btn-sm mr-1"
+                            style={{ fontSize: "0.75rem", padding: "4px 8px", marginRight: "4px" }}
                           >
                             ✏️ Edit
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteRecordClick(record); }} 
+                            className="btn btn-danger btn-sm"
+                            style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                            title="Delete Record"
+                          >
+                            🗑️ Delete
                           </button>
                         </td>
                       </tr>
@@ -516,7 +578,7 @@ export default function PropertyTaxPage() {
                 ref={textareaRef}
                 value={templateText} 
                 onChange={(e) => setTemplateText(e.target.value)} 
-                className="form-control"
+                className="form-input"
                 rows={5}
                 style={{ fontSize: "0.85rem", resize: "vertical", fontFamily: "monospace", backgroundColor: "#0f172a" }}
               />
@@ -599,7 +661,7 @@ export default function PropertyTaxPage() {
                   type="text" 
                   value={propId} 
                   onChange={(e) => setPropId(e.target.value)} 
-                  className="form-control" 
+                  className="form-input" 
                   placeholder="e.g. 1885"
                   required
                 />
@@ -610,7 +672,7 @@ export default function PropertyTaxPage() {
                   type="text" 
                   value={ownerName} 
                   onChange={(e) => setOwnerName(e.target.value)} 
-                  className="form-control" 
+                  className="form-input" 
                   placeholder="e.g. Ramesh Kumar Verma"
                   required
                 />
@@ -621,7 +683,7 @@ export default function PropertyTaxPage() {
                   type="number" 
                   value={dueAmount} 
                   onChange={(e) => setDueAmount(e.target.value)} 
-                  className="form-control" 
+                  className="form-input" 
                   placeholder="e.g. 1885.00"
                   step="0.01"
                   required
@@ -633,7 +695,7 @@ export default function PropertyTaxPage() {
                   type="text" 
                   value={mobileNum} 
                   onChange={(e) => setMobileNum(e.target.value)} 
-                  className="form-control" 
+                  className="form-input" 
                   placeholder="e.g. 9876543210"
                   required
                 />
@@ -644,7 +706,7 @@ export default function PropertyTaxPage() {
                   <select 
                     value={payStatus} 
                     onChange={(e) => setPayStatus(e.target.value as "pending" | "paid")}
-                    className="form-control text-capitalize"
+                    className="form-select text-capitalize"
                   >
                     <option value="pending">Pending</option>
                     <option value="paid">Paid</option>
