@@ -36,7 +36,7 @@ cd ..
 echo.
 echo [4/4] Starting Dashboard Server...
 cd dashboard
-start "Gram Panchayat Dashboard" cmd /k "npm run dev"
+start "Gram Panchayat Dashboard" cmd /k "npm run dev -- -p 3001"
 cd ..
 
 echo.

@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 20.11.1
 
   - type: web
     name: gram-panchayat-dashboard
@@ -20,6 +22,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 20.11.1
       - key: NEXT_PUBLIC_API_URL
         fromService:
           type: web
