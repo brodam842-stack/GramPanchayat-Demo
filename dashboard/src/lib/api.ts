@@ -163,4 +163,65 @@ export async function deleteForm(id: string) {
   return apiFetch(`/api/forms/${id}`, { method: "DELETE" });
 }
 
+// ── Property Tax ─────────────────────────────────────────────────────────────
+export async function fetchTaxRecords(page = 1, limit = 10, search = "", status = "") {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    ...(search && { search }),
+    ...(status && { status }),
+  });
+  return apiFetch(`/api/tax/records?${params}`);
+}
+
+export async function createTaxRecord(propertyId: string, ownerName: string, dueAmount: number, mobileNumber: string) {
+  return apiFetch("/api/tax/record", {
+    method: "POST",
+    body: JSON.stringify({ propertyId, ownerName, dueAmount, mobileNumber }),
+  });
+}
+
+export async function updateTaxRecord(id: string, data: Record<string, unknown>) {
+  return apiFetch(`/api/tax/record/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function importTaxExcel(file: File) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API}/api/tax/import`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("gp_token");
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+export async function circulateTaxTemplate(template: string) {
+  return apiFetch("/api/tax/circulate", {
+    method: "POST",
+    body: JSON.stringify({ template }),
+  });
+}
+
+export async function triggerMockTaxWebhook(propertyId: string) {
+  return apiFetch("/api/tax/webhook-mock-trigger", {
+    method: "POST",
+    body: JSON.stringify({ propertyId }),
+  });
+}
+
 export { apiFetch };
