@@ -1,4 +1,4 @@
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/+$/, "");
 
 function getToken(): string {
   if (typeof window === "undefined") return "";
@@ -100,6 +100,67 @@ export async function fetchBlocked() {
 
 export async function unblockNumber(number: string) {
   return apiFetch(`/api/analytics/blocked/${encodeURIComponent(number)}`, { method: "DELETE" });
+}
+
+export async function uploadBroadcastImage(file: File) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch(`${API}/api/broadcast/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("gp_token");
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+export async function sendBulkMessage(message: string, recipients: string[] | "all", imageUrl?: string) {
+  return apiFetch("/api/broadcast/send", {
+    method: "POST",
+    body: JSON.stringify({ message, recipients, imageUrl }),
+  });
+}
+
+export async function fetchForms() {
+  return apiFetch("/api/forms");
+}
+
+export async function createForm(name: string, requiredDocuments: string, file: File) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("name", name);
+  formData.append("required_documents", requiredDocuments);
+  formData.append("file", file);
+
+  const res = await fetch(`${API}/api/forms`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("gp_token");
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+export async function deleteForm(id: string) {
+  return apiFetch(`/api/forms/${id}`, { method: "DELETE" });
 }
 
 export { apiFetch };
