@@ -36,6 +36,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     { href: "/dashboard",           icon: "📊", label: "Overview"        },
     { href: "/dashboard/citizens",  icon: "👥", label: "Citizens"        },
     { href: "/dashboard/documents", icon: "📄", label: "Documents"       },
+    { href: "/dashboard/forms",     icon: "📝", label: "Blank Forms"     },
+    { href: "/dashboard/broadcast", icon: "📢", label: "Bulk Message"    },
     { href: "/dashboard/analytics", icon: "📈", label: "Analytics"       },
     { href: "/dashboard/audit",     icon: "🔍", label: "Audit Logs"      },
     { href: "/dashboard/blocked",   icon: "🚫", label: "Blocked Numbers" },
@@ -54,12 +56,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         <nav className="sidebar-nav">
           <div className="nav-section-label">Main</div>
-          {navItems.slice(0, 4).map(n => (
+          {navItems.slice(0, 5).map(n => (
             <NavItem key={n.href} {...n} active={pathname === n.href} />
           ))}
 
           <div className="nav-section-label">Management</div>
-          {navItems.slice(4).map(n => (
+          {navItems.slice(5).map(n => (
             <NavItem key={n.href} {...n} active={pathname === n.href} />
           ))}
         </nav>

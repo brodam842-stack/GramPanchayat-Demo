@@ -14,9 +14,23 @@ const os   = require('os');
 
 const MSG = {
   welcome: (name = 'Sample Gram Panchayat') =>
-    `🙏 *Welcome to ${name} Digital Document Service*\n\n` +
-    `To retrieve your official documents, I'll need to verify your identity.\n\n` +
-    `Please share your *10-digit registered mobile number*.`,
+    `🙏 *Welcome to ${name} Digital Service*\n\n` +
+    `How can I assist you today? Please reply with the option number:\n\n` +
+    `1️⃣ *Download Blank Application Forms* (No login required)\n` +
+    `2️⃣ *Retrieve Personal Documents* (Identity verification required)\n\n` +
+    `Reply with *1* or *2* to choose.`,
+
+  formList: (forms) => {
+    const list = forms.map((f, i) => `${i + 1}️⃣ ${f.name}`).join('\n');
+    return `📝 *Gram Panchayat Application Forms*\n\n` +
+           `Available forms to download:\n${list}\n\n` +
+           `Reply with the *number* of the form you need.`;
+  },
+
+  formDelivery: (formName, reqDocs) =>
+    `📄 *Form:* ${formName}\n\n` +
+    `📂 *Required Documents to submit:* \n${reqDocs}\n\n` +
+    `Need anything else? Reply *Yes* or *No*`,
 
   askName: () =>
     `✅ Mobile number verified!\n\n` +
@@ -97,6 +111,21 @@ async function getPanchayatConfig() {
   return configCache || {};
 }
 
+// ─── Block reminder cooldown (in-memory) ──────────────────────────────────────
+// Prevents sending a blocked message on EVERY incoming message from a blocked user.
+// We only remind them once every 10 minutes.
+const blockReminderSent = new Map(); // whatsappNumber -> timestamp
+const BLOCK_REMINDER_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+
+function shouldSendBlockReminder(from) {
+  const last = blockReminderSent.get(from);
+  if (!last || Date.now() - last > BLOCK_REMINDER_COOLDOWN_MS) {
+    blockReminderSent.set(from, Date.now());
+    return true;
+  }
+  return false;
+}
+
 // ─── Format DOB as DDMMYYYY ───────────────────────────────────────────────────
 function dobToPassword(dob) {
   const d = new Date(dob);
@@ -165,16 +194,23 @@ async function handleMessage(from, body, msgSid) {
   // ── Check if blocked ──────────────────────────────────────────────────────
   const blockStatus = await isBlocked(from);
   if (blockStatus.blocked) {
-    await sendMessage(from, MSG.blocked(blockStatus.blockedUntil));
+    // Only remind blocked users once per 10 minutes to avoid burning Twilio credits
+    if (shouldSendBlockReminder(from)) {
+      await sendMessage(from, MSG.blocked(blockStatus.blockedUntil));
+    }
     return;
   }
 
   // ── Get or create session ─────────────────────────────────────────────────
   let session = await getSession(from);
 
-  // Restart keywords
-  const isRestart = /^(hi|hello|start|restart|नमस्ते|हैलो)$/i.test(input);
-  if (isRestart || !session) {
+  // Restart keywords — only restart if user explicitly greets AND has no active session,
+  // OR if they explicitly say 'restart'. This prevents a fresh Welcome message being
+  // sent every time Render restarts the server and loses the in-memory session.
+  const isExplicitRestart = /^(restart)$/i.test(input);
+  const isGreeting        = /^(hi|hello|start|नमस्ते|हैलो)$/i.test(input);
+
+  if (isExplicitRestart || (isGreeting && !session)) {
     if (session) await deleteSession(from);
     session = await createSession(from);
     const welcomeMsg = config.welcome_message || MSG.welcome(config.panchayat_name);
@@ -182,9 +218,104 @@ async function handleMessage(from, body, msgSid) {
     return;
   }
 
+  // If no session and not a greeting, prompt them to start instead of silently failing
+  if (!session) {
+    await sendMessage(from, MSG.sessionExpired());
+    return;
+  }
+
   // ── Route based on current step ───────────────────────────────────────────
   try {
     switch (session.currentStep) {
+
+      // ── STEP 0: Main Menu Selection ────────────────────────────────────────
+      case STEPS.MAIN_MENU: {
+        if (input === '1') {
+          // Fetch blank application forms from database
+          const { data: forms, error } = await supabaseAdmin
+            .from('blank_forms')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+          if (error || !forms || forms.length === 0) {
+            await sendMessage(from, '📭 No blank application forms are currently configured. Please try again later or contact the gram panchayat office.');
+            await deleteSession(from);
+            return;
+          }
+
+          // Transition to FORM_SELECT
+          await updateSession(from, { currentStep: STEPS.FORM_SELECT });
+          await sendMessage(from, MSG.formList(forms));
+        } else if (input === '2') {
+          // Start Retrieve Documents Flow
+          await updateSession(from, { currentStep: STEPS.MOBILE });
+          await sendMessage(from, 'To retrieve your personal documents, please share your *10-digit registered mobile number*.');
+        } else {
+          // Invalid choice in main menu
+          await sendMessage(from, '❌ Invalid choice. Please reply with *1* (Forms) or *2* (Documents).');
+        }
+        break;
+      }
+
+      // ── STEP 0.5: Form Selection ─────────────────────────────────────────
+      case STEPS.FORM_SELECT: {
+        const { data: forms, error } = await supabaseAdmin
+          .from('blank_forms')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error || !forms || forms.length === 0) {
+          await sendMessage(from, '❌ Forms are temporarily unavailable. Please try again.');
+          await deleteSession(from);
+          return;
+        }
+
+        const choice = parseInt(input, 10);
+        if (isNaN(choice) || choice < 1 || choice > forms.length) {
+          await sendMessage(from, `❌ Invalid choice. Please reply with a number between *1* and *${forms.length}*.`);
+          return;
+        }
+
+        const selectedForm = forms[choice - 1];
+        await sendMessage(from, `⏳ Preparing your *${selectedForm.name}*... Please wait.`);
+
+        // Log transaction inside Supabase audit logs
+        await logTransaction({
+          citizenId: null,
+          whatsappNumber: from,
+          documentRequested: `Form: ${selectedForm.name}`,
+          status: 'success',
+          sessionId: session.id,
+        });
+
+        // Send PDF Form and description with required documents
+        await sendMedia(
+          from,
+          MSG.formDelivery(selectedForm.name, selectedForm.required_documents),
+          selectedForm.pdf_url
+        );
+
+        // Transition to FORM_CONFIRM
+        await updateSession(from, { currentStep: STEPS.FORM_CONFIRM });
+        break;
+      }
+
+      // ── STEP 0.6: Form Confirmation yes/no ────────────────────────────────
+      case STEPS.FORM_CONFIRM: {
+        const lower = input.toLowerCase();
+        if (['yes', 'y', 'हाँ', 'ha'].includes(lower)) {
+          // Restart to main menu
+          await updateSession(from, { currentStep: STEPS.MAIN_MENU });
+          const welcomeMsg = config.welcome_message || MSG.welcome(config.panchayat_name);
+          await sendMessage(from, welcomeMsg);
+        } else if (['no', 'n', 'नहीं', 'nahi'].includes(lower)) {
+          await sendMessage(from, MSG.goodbye());
+          await deleteSession(from);
+        } else {
+          await sendMessage(from, '❓ Please reply with *Yes* or *No*.');
+        }
+        break;
+      }
 
       // ── STEP 1: Mobile Number ───────────────────────────────────────────
       case STEPS.MOBILE: {

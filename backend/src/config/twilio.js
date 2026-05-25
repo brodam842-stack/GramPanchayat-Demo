@@ -31,19 +31,14 @@ async function sendMessage(to, body) {
     console.warn('[Twilio] Client not initialised — credentials missing. Would send:', { to, body });
     return { sid: 'MOCK_SID', status: 'mock' };
   }
-  let attempts = 0;
-  while (attempts < 3) {
-    try {
-      const msg = await client.messages.create({ from: fromNumber, to, body });
-      console.log(`[Twilio] Message sent to ${to}. SID: ${msg.sid}`);
-      return msg;
-    } catch (err) {
-      attempts++;
-      console.error(`[Twilio] Send attempt ${attempts} failed:`, err.message);
-      if (attempts < 3) await new Promise(r => setTimeout(r, 1000 * attempts));
-    }
+  try {
+    const msg = await client.messages.create({ from: fromNumber, to, body });
+    console.log(`[Twilio] Message sent to ${to}. SID: ${msg.sid}`);
+    return msg;
+  } catch (err) {
+    console.error(`[Twilio] Send failed:`, err.message);
+    throw new Error(`Failed to send WhatsApp message: ${err.message}`);
   }
-  throw new Error('Failed to send WhatsApp message after 3 attempts');
 }
 
 /**
@@ -57,19 +52,14 @@ async function sendMedia(to, body, mediaUrl) {
     console.warn('[Twilio] Client not initialised — would send media:', { to, mediaUrl });
     return { sid: 'MOCK_SID', status: 'mock' };
   }
-  let attempts = 0;
-  while (attempts < 3) {
-    try {
-      const msg = await client.messages.create({ from: fromNumber, to, body, mediaUrl: [mediaUrl] });
-      console.log(`[Twilio] Media sent to ${to}. SID: ${msg.sid}`);
-      return msg;
-    } catch (err) {
-      attempts++;
-      console.error(`[Twilio] Media send attempt ${attempts} failed:`, err.message);
-      if (attempts < 3) await new Promise(r => setTimeout(r, 1000 * attempts));
-    }
+  try {
+    const msg = await client.messages.create({ from: fromNumber, to, body, mediaUrl: [mediaUrl] });
+    console.log(`[Twilio] Media sent to ${to}. SID: ${msg.sid}`);
+    return msg;
+  } catch (err) {
+    console.error(`[Twilio] Media send failed:`, err.message);
+    throw new Error(`Failed to send media message: ${err.message}`);
   }
-  throw new Error('Failed to send media message after 3 attempts');
 }
 
 /**

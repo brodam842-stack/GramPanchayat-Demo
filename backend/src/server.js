@@ -11,6 +11,8 @@ const { router: authRouter } = require('./routes/auth');
 const citizensRouter  = require('./routes/citizens');
 const analyticsRouter = require('./routes/analytics');
 const documentsRouter = require('./routes/documents');
+const broadcastRouter = require('./routes/broadcast');
+const formsRouter = require('./routes/forms');
 const { cleanExpiredSessions } = require('./services/sessionManager');
 
 const app  = express();
@@ -55,6 +57,8 @@ app.use('/api/auth',         authLimiter, authRouter);
 app.use('/api/citizens',     citizensRouter);
 app.use('/api/analytics',    analyticsRouter);
 app.use('/api/documents',    documentsRouter);
+app.use('/api/broadcast',    broadcastRouter);
+app.use('/api/forms',        formsRouter);
 
 // ─── Static Media Serving (for Twilio PDF delivery via Ngrok) ─────────────────
 const os = require('os');
