@@ -299,11 +299,44 @@ router.get('/records', authenticate, async (req, res) => {
 
     if (error) throw error;
 
+    // Fetch lightweight columns for global system statistics calculations
+    const { data: allDues, error: duesErr } = await supabaseAdmin
+      .from('tax_records')
+      .select('payment_status, due_amount');
+
+    if (duesErr) {
+      console.error('[Tax] Failed to fetch dues stats:', duesErr.message);
+    }
+
+    let totalPendingAmount = 0;
+    let totalPaidAmount = 0;
+    let totalPendingCount = 0;
+    let totalPaidCount = 0;
+
+    if (allDues) {
+      for (const row of allDues) {
+        const amt = parseFloat(row.due_amount || 0);
+        if (row.payment_status === 'paid') {
+          totalPaidAmount += amt;
+          totalPaidCount++;
+        } else {
+          totalPendingAmount += amt;
+          totalPendingCount++;
+        }
+      }
+    }
+
     res.json({
       records: data || [],
       total: count || 0,
       page,
-      pages: Math.ceil((count || 0) / limit)
+      pages: Math.ceil((count || 0) / limit),
+      stats: {
+        totalPendingAmount,
+        totalPaidAmount,
+        totalPendingCount,
+        totalPaidCount
+      }
     });
   } catch (err) {
     console.error('[Tax] Fetch error:', err.message);
