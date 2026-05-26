@@ -61,6 +61,14 @@ export default function PropertyTaxPage() {
   const [circulateProgress, setCirculateProgress] = useState({ current: 0, total: 0 });
   const [circulateReport, setCirculateReport] = useState<string | null>(null);
 
+  // Global aggregate stats
+  const [stats, setStats] = useState({
+    totalPendingAmount: 0,
+    totalPaidAmount: 0,
+    totalPendingCount: 0,
+    totalPaidCount: 0
+  });
+
   // Notification Toast state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
@@ -84,6 +92,9 @@ export default function PropertyTaxPage() {
       const data = await fetchTaxRecords(page, 10, search, statusFilter, currentSortBy, currentSortOrder);
       setRecords(data.records);
       setTotalRecords(data.total);
+      if (data.stats) {
+        setStats(data.stats);
+      }
     } catch (err: any) {
       showToast(err.message || "Failed to load tax records", "error");
     } finally {
@@ -373,10 +384,10 @@ export default function PropertyTaxPage() {
               Pending Collections
             </div>
             <div style={{ fontSize: "1.75rem", fontWeight: 700, marginTop: "8px", color: "#f3f4f6" }}>
-              {isLoading ? "..." : records.filter(r => r.payment_status === "pending").reduce((acc, curr) => acc + Number(curr.due_amount), 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 })}
+              {isLoading ? "..." : stats.totalPendingAmount.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 })}
             </div>
             <div style={{ fontSize: "0.75rem", color: "#f59e0b", marginTop: "4px" }}>
-              Outstanding tax dues currently in list
+              Total outstanding tax dues in system
             </div>
           </div>
         </div>
@@ -386,10 +397,10 @@ export default function PropertyTaxPage() {
               Dues Collected
             </div>
             <div style={{ fontSize: "1.75rem", fontWeight: 700, marginTop: "8px", color: "#10b981" }}>
-              {isLoading ? "..." : records.filter(r => r.payment_status === "paid").reduce((acc, curr) => acc + Number(curr.due_amount), 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 })}
+              {isLoading ? "..." : stats.totalPaidAmount.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 })}
             </div>
             <div style={{ fontSize: "0.75rem", color: "#10b981", marginTop: "4px" }}>
-              Online payments confirmed
+              Total online payments confirmed
             </div>
           </div>
         </div>
@@ -412,7 +423,7 @@ export default function PropertyTaxPage() {
               Collection Rate
             </div>
             <div style={{ fontSize: "1.75rem", fontWeight: 700, marginTop: "8px", color: "#a855f7" }}>
-              {totalRecords > 0 ? `${Math.round((records.filter(r => r.payment_status === "paid").length / records.length) * 100)}%` : "0%"}
+              {totalRecords > 0 ? `${Math.round((stats.totalPaidCount / totalRecords) * 100)}%` : "0%"}
             </div>
             <div style={{ fontSize: "0.75rem", color: "#c084fc", marginTop: "4px" }}>
               Percentage of properties paid
