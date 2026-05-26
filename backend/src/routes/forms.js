@@ -51,7 +51,7 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     // Upload PDF to Supabase storage
     const { error: uploadError } = await supabaseAdmin.storage
-      .from('gp-documents')
+      .from('gp-delivery')
       .upload(filename, file.buffer, {
         contentType: 'application/pdf',
         upsert: true,
@@ -61,7 +61,7 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     // Get public URL
     const { data: urlData } = supabaseAdmin.storage
-      .from('gp-documents')
+      .from('gp-delivery')
       .getPublicUrl(filename);
 
     const pdfUrl = urlData?.publicUrl;
@@ -80,7 +80,7 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     if (dbError) {
       // Cleanup uploaded file on DB insertion failure
-      await supabaseAdmin.storage.from('gp-documents').remove([filename]);
+      await supabaseAdmin.storage.from('gp-delivery').remove([filename]);
       throw dbError;
     }
 
@@ -111,12 +111,12 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Extract storage filename path from public URL
-    // e.g. "https://.../storage/v1/object/public/gp-documents/forms/12345_test.pdf" -> "forms/12345_test.pdf"
-    const storagePathPrefix = 'gp-documents/';
+    // e.g. "https://.../storage/v1/object/public/gp-delivery/forms/12345_test.pdf" -> "forms/12345_test.pdf"
+    const storagePathPrefix = 'gp-delivery/';
     const pathIndex = form.pdf_url.indexOf(storagePathPrefix);
     if (pathIndex !== -1) {
       const filename = form.pdf_url.slice(pathIndex + storagePathPrefix.length);
-      await supabaseAdmin.storage.from('gp-documents').remove([filename]);
+      await supabaseAdmin.storage.from('gp-delivery').remove([filename]);
     }
 
     // Delete record from DB

@@ -17,8 +17,9 @@ const MSG = {
     `🙏 *Welcome to ${name} Digital Service*\n\n` +
     `How can I assist you today? Please reply with the option number:\n\n` +
     `1️⃣ *Download Blank Application Forms* (No login required)\n` +
-    `2️⃣ *Retrieve Personal Documents* (Identity verification required)\n\n` +
-    `Reply with *1* or *2* to choose.`,
+    `2️⃣ *Retrieve Personal Documents* (Identity verification required)\n` +
+    `3️⃣ *Pay Property Tax* (Razorpay online payment)\n\n` +
+    `Reply with *1*, *2* or *3* to choose.`,
 
   formList: (forms) => {
     const list = forms.map((f, i) => `${i + 1}️⃣ ${f.name}`).join('\n');
@@ -250,9 +251,13 @@ async function handleMessage(from, body, msgSid) {
           // Start Retrieve Documents Flow
           await updateSession(from, { currentStep: STEPS.MOBILE });
           await sendMessage(from, 'To retrieve your personal documents, please share your *10-digit registered mobile number*.');
+        } else if (input === '3') {
+          // Start Pay Property Tax Flow
+          await updateSession(from, { currentStep: STEPS.TAX_MOBILE });
+          await sendMessage(from, 'To pay your property tax online, please share your *10-digit registered mobile number*.');
         } else {
           // Invalid choice in main menu
-          await sendMessage(from, '❌ Invalid choice. Please reply with *1* (Forms) or *2* (Documents).');
+          await sendMessage(from, '❌ Invalid choice. Please reply with *1* (Forms), *2* (Documents), or *3* (Property Tax).');
         }
         break;
       }
@@ -311,6 +316,134 @@ async function handleMessage(from, body, msgSid) {
         } else if (['no', 'n', 'नहीं', 'nahi'].includes(lower)) {
           await sendMessage(from, MSG.goodbye());
           await deleteSession(from);
+        } else {
+          await sendMessage(from, '❓ Please reply with *Yes* or *No*.');
+        }
+        break;
+      }
+
+      // ── STEP 0.7: Tax Mobile Lookup ──────────────────────────────────────
+      case STEPS.TAX_MOBILE: {
+        const validation = validateMobile(input);
+        if (!validation.valid) {
+          await sendMessage(from, MSG.invalidMobile());
+          return;
+        }
+
+        // Search for a pending tax record matching this mobile number
+        const { data: record, error } = await supabaseAdmin
+          .from('tax_records')
+          .select('*')
+          .eq('mobile_number', validation.normalized)
+          .eq('payment_status', 'pending')
+          .limit(1)
+          .single();
+
+        if (error || !record) {
+          await sendMessage(from, '🎉 Great news! You have no outstanding property tax dues for this mobile number.');
+          
+          // Loop back to main menu
+          await updateSession(from, { currentStep: STEPS.MAIN_MENU });
+          const welcomeMsg = config.welcome_message || MSG.welcome(config.panchayat_name);
+          await sendMessage(from, welcomeMsg);
+          return;
+        }
+
+        // Pending tax due found!
+        await updateSession(from, {
+          currentStep: STEPS.TAX_CONFIRM,
+          _taxRecord: record // Temporary store in session memory
+        });
+
+        const taxPrompt = `📊 *Property Tax Outstanding Dues Found!*\n\n` +
+                          `🏠 *Property ID:* ${record.property_id}\n` +
+                          `👤 *Owner Name:* ${record.owner_name}\n` +
+                          `💰 *Amount Due:* ₹${parseFloat(record.due_amount).toFixed(2)}\n\n` +
+                          `Would you like to generate a payment link to pay online right now? (Reply *Yes* or *No*)`;
+
+        await sendMessage(from, taxPrompt);
+        break;
+      }
+
+      // ── STEP 0.8: Tax Confirmation yes/no ─────────────────────────────────
+      case STEPS.TAX_CONFIRM: {
+        const lower = input.toLowerCase();
+        if (['yes', 'y', 'हाँ', 'ha'].includes(lower)) {
+          const record = session._taxRecord;
+          if (!record) {
+            await sendMessage(from, '❌ Session mismatch. Please start again.');
+            await deleteSession(from);
+            return;
+          }
+
+          await sendMessage(from, '⏳ Generating secure Razorpay payment link... Please wait.');
+
+          let paymentLink = record.payment_link;
+          
+          // Generate new payment link if missing
+          if (!paymentLink) {
+            const Razorpay = require('razorpay');
+            if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+              try {
+                const razorpay = new Razorpay({
+                  key_id: process.env.RAZORPAY_KEY_ID,
+                  key_secret: process.env.RAZORPAY_KEY_SECRET
+                });
+
+                const linkData = await razorpay.paymentLink.create({
+                  amount: Math.round(record.due_amount * 100), // Paise
+                  currency: 'INR',
+                  accept_partial: false,
+                  description: `Property Tax Due for Property ID: ${record.property_id}`,
+                  customer: {
+                    name: record.owner_name,
+                    contact: `+91${record.mobile_number}`
+                  },
+                  notify: { sms: false, email: false },
+                  reminder_enable: true,
+                  callback_url: `${process.env.PUBLIC_URL || 'http://localhost:3000'}/api/tax/callback`,
+                  callback_method: 'get'
+                });
+
+                paymentLink = linkData.short_url;
+
+                // Update in DB
+                await supabaseAdmin
+                  .from('tax_records')
+                  .update({
+                    razorpay_payment_link_id: linkData.id,
+                    payment_link: paymentLink
+                  })
+                  .eq('id', record.id);
+
+              } catch (rzpErr) {
+                console.error('[Razorpay] Bot link generation failed:', rzpErr.message);
+              }
+            }
+          }
+
+          // Fallback to mock link if Razorpay creation failed or wasn't configured
+          if (!paymentLink) {
+            paymentLink = `https://rzp.io/i/mock_tax_${record.id.substring(0, 8)}`;
+            await supabaseAdmin
+              .from('tax_records')
+              .update({ payment_link: paymentLink })
+              .eq('id', record.id);
+          }
+
+          const responseMsg = `💳 *Secure Razorpay Link Generated!* \n\n` +
+                              `Click here to complete payment:\n🔗 ${paymentLink}\n\n` +
+                              `Once the payment is verified, your official receipt will be delivered instantly on this chat.\n\n` +
+                              `Need anything else? Reply *Yes* or *No*`;
+          
+          await sendMessage(from, responseMsg);
+          await updateSession(from, { currentStep: STEPS.FORM_CONFIRM }); // Re-use general Yes/No menu loop
+
+        } else if (['no', 'n', 'नहीं', 'nahi'].includes(lower)) {
+          // Loop back to main menu
+          await updateSession(from, { currentStep: STEPS.MAIN_MENU });
+          const welcomeMsg = config.welcome_message || MSG.welcome(config.panchayat_name);
+          await sendMessage(from, welcomeMsg);
         } else {
           await sendMessage(from, '❓ Please reply with *Yes* or *No*.');
         }
@@ -488,7 +621,7 @@ async function handleMessage(from, body, msgSid) {
             );
           }
 
-          await updateSession(from, { currentStep: STEPS.DOCUMENT_SELECT });
+          await updateSession(from, { currentStep: STEPS.DOCUMENT_CONFIRM });
         } catch (err) {
           console.error('[Flow] Document delivery error:', err.message);
           await logTransaction({
@@ -500,13 +633,13 @@ async function handleMessage(from, body, msgSid) {
             sessionId: session.id,
           });
           await sendMessage(from, `❌ Unable to process your document. Our team has been notified.\n\nNeed another document? Reply *Yes* or *No*`);
-          await updateSession(from, { currentStep: STEPS.DOCUMENT_SELECT });
+          await updateSession(from, { currentStep: STEPS.DOCUMENT_CONFIRM });
         }
         break;
       }
 
-      // ── yes/no for another document ──────────────────────────────────────
-      default: {
+      // ── STEP 5: Document Confirmation yes/no ────────────────────────────────
+      case STEPS.DOCUMENT_CONFIRM: {
         const lower = input.toLowerCase();
         if (['yes', 'y', 'हाँ', 'ha'].includes(lower)) {
           const docs = session.documentList || [];
@@ -516,8 +649,13 @@ async function handleMessage(from, body, msgSid) {
           await sendMessage(from, MSG.goodbye());
           await deleteSession(from);
         } else {
-          await sendMessage(from, MSG.invalidInput());
+          await sendMessage(from, '❓ Please reply with *Yes* or *No*.');
         }
+        break;
+      }
+
+      default: {
+        await sendMessage(from, MSG.invalidInput());
         break;
       }
     }

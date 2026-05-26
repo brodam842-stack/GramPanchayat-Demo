@@ -8,14 +8,18 @@ const SESSION_TIMEOUT = parseInt(process.env.SESSION_TIMEOUT_MS || '900000', 10)
  * Session step constants
  */
 const STEPS = {
-  MAIN_MENU:       'MAIN_MENU',
-  MOBILE:          'MOBILE',
-  NAME:            'NAME',
-  AADHAAR:         'AADHAAR',
-  DOCUMENT_SELECT: 'DOCUMENT_SELECT',
-  DELIVERY:        'DELIVERY',
-  FORM_SELECT:     'FORM_SELECT',
-  COMPLETED:       'COMPLETED',
+  MAIN_MENU:        'MAIN_MENU',
+  MOBILE:           'MOBILE',
+  NAME:             'NAME',
+  AADHAAR:          'AADHAAR',
+  DOCUMENT_SELECT:  'DOCUMENT_SELECT',
+  DELIVERY:         'DELIVERY',
+  FORM_SELECT:      'FORM_SELECT',
+  FORM_CONFIRM:     'FORM_CONFIRM',
+  DOCUMENT_CONFIRM: 'DOCUMENT_CONFIRM',
+  TAX_MOBILE:       'TAX_MOBILE',
+  TAX_CONFIRM:      'TAX_CONFIRM',
+  COMPLETED:        'COMPLETED',
 };
 
 /**

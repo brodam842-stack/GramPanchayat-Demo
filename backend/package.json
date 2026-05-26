@@ -8,7 +8,12 @@
     "dev": "nodemon --ext js,json,env --watch src --watch .env src/server.js",
     "test": "jest --coverage"
   },
-  "keywords": ["whatsapp", "bot", "gram-panchayat", "twilio"],
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "gram-panchayat",
+    "twilio"
+  ],
   "author": "INNOCREW",
   "license": "ISC",
   "dependencies": {
@@ -25,8 +30,10 @@
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
     "pdf-lib": "^1.17.1",
+    "razorpay": "^2.9.6",
     "twilio": "^5.3.7",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.7"

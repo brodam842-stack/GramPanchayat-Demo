@@ -13,6 +13,7 @@ const analyticsRouter = require('./routes/analytics');
 const documentsRouter = require('./routes/documents');
 const broadcastRouter = require('./routes/broadcast');
 const formsRouter = require('./routes/forms');
+const taxRouter = require('./routes/tax');
 const { cleanExpiredSessions } = require('./services/sessionManager');
 
 const app  = express();
@@ -48,7 +49,12 @@ app.use(cors({
 // ─── Body Parsers ─────────────────────────────────────────────────────────────
 // Twilio sends urlencoded form data
 app.use('/webhook', express.urlencoded({ extended: false }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(globalLimiter);
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -59,6 +65,7 @@ app.use('/api/analytics',    analyticsRouter);
 app.use('/api/documents',    documentsRouter);
 app.use('/api/broadcast',    broadcastRouter);
 app.use('/api/forms',        formsRouter);
+app.use('/api/tax',          taxRouter);
 
 // ─── Static Media Serving (for Twilio PDF delivery via Ngrok) ─────────────────
 const os = require('os');
@@ -124,3 +131,4 @@ if (!process.env.VERCEL) {
 }
 
 module.exports = app;
+// Trigger restart

@@ -16,7 +16,7 @@ router.use(authenticate);
 
 /**
  * POST /api/broadcast/upload
- * Uploads a broadcast attachment image to Supabase storage 'gp-documents' bucket
+ * Uploads a broadcast attachment image to Supabase storage 'gp-delivery' bucket
  */
 router.post('/upload', upload.single('image'), async (req, res) => {
   const file = req.file;
@@ -27,7 +27,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const storagePath = `broadcasts/${filename}`;
 
     const { error } = await supabaseAdmin.storage
-      .from('gp-documents')
+      .from('gp-delivery')
       .upload(storagePath, file.buffer, {
         contentType: file.mimetype,
         upsert: true,
@@ -36,7 +36,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     if (error) throw new Error(error.message);
 
     const { data } = supabaseAdmin.storage
-      .from('gp-documents')
+      .from('gp-delivery')
       .getPublicUrl(storagePath);
 
     res.json({ imageUrl: data.publicUrl });
