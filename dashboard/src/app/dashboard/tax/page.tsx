@@ -29,6 +29,7 @@ export default function PropertyTaxPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [sortSelection, setSortSelection] = useState("default");
   
   // Composer states
   const [templateText, setTemplateText] = useState(
@@ -68,8 +69,19 @@ export default function PropertyTaxPage() {
 
   const loadRecords = useCallback(async () => {
     setIsLoading(true);
+    let currentSortBy = "created_at";
+    let currentSortOrder = "desc";
+
+    if (sortSelection === "prop_asc") {
+      currentSortBy = "property_id";
+      currentSortOrder = "asc";
+    } else if (sortSelection === "prop_desc") {
+      currentSortBy = "property_id";
+      currentSortOrder = "desc";
+    }
+
     try {
-      const data = await fetchTaxRecords(page, 10, search, statusFilter);
+      const data = await fetchTaxRecords(page, 10, search, statusFilter, currentSortBy, currentSortOrder);
       setRecords(data.records);
       setTotalRecords(data.total);
     } catch (err: any) {
@@ -77,7 +89,7 @@ export default function PropertyTaxPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [page, search, statusFilter]);
+  }, [page, search, statusFilter, sortSelection]);
 
   useEffect(() => {
     loadRecords();
@@ -415,15 +427,15 @@ export default function PropertyTaxPage() {
         <div className="col-lg-7 mb-4">
           <div className="card card-dark h-100" style={{ padding: "24px" }}>
             <div className="row align-items-center mb-3">
-              <div className="col">
+              <div className="col-md-3">
                 <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: 0, color: "#f3f4f6" }}>
-                  Property Tax Records
+                  Property Tax
                 </h3>
               </div>
-              <div className="col-md-5">
+              <div className="col-md-3">
                 <input 
                   type="text" 
-                  placeholder="🔍 Search Owner or Property ID..." 
+                  placeholder="🔍 Search..." 
                   value={search} 
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                   className="form-input"
@@ -440,6 +452,18 @@ export default function PropertyTaxPage() {
                   <option value="">All Statuses</option>
                   <option value="pending">Pending</option>
                   <option value="paid">Paid</option>
+                </select>
+              </div>
+              <div className="col-md-3">
+                <select 
+                  value={sortSelection} 
+                  onChange={(e) => { setSortSelection(e.target.value); setPage(1); }}
+                  className="form-select"
+                  style={{ fontSize: "0.85rem", height: "36px" }}
+                >
+                  <option value="default">Sort: Newest First</option>
+                  <option value="prop_asc">Property ID: Asc ↗</option>
+                  <option value="prop_desc">Property ID: Desc ↘</option>
                 </select>
               </div>
             </div>

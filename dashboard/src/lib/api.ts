@@ -164,12 +164,14 @@ export async function deleteForm(id: string) {
 }
 
 // ── Property Tax ─────────────────────────────────────────────────────────────
-export async function fetchTaxRecords(page = 1, limit = 10, search = "", status = "") {
+export async function fetchTaxRecords(page = 1, limit = 10, search = "", status = "", sortBy = "created_at", sortOrder = "desc") {
   const params = new URLSearchParams({
     page: String(page),
     limit: String(limit),
     ...(search && { search }),
     ...(status && { status }),
+    ...(sortBy && { sortBy }),
+    ...(sortOrder && { sortOrder }),
   });
   return apiFetch(`/api/tax/records?${params}`);
 }
