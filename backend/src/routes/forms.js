@@ -134,4 +134,88 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+/**
+ * PUT /api/forms/:id
+ * Edits an already made blank form template (updates metadata, optional PDF replacement)
+ */
+router.put('/:id', upload.single('file'), async (req, res) => {
+  const { id } = req.params;
+  const { name, required_documents } = req.body;
+  const file = req.file;
+
+  try {
+    // 1. Fetch existing form details
+    const { data: form, error: fetchError } = await supabaseAdmin
+      .from('blank_forms')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !form) {
+      return res.status(404).json({ error: 'Application form not found.' });
+    }
+
+    let updatedPdfUrl = form.pdf_url;
+    let newFilename = '';
+
+    // 2. If a new PDF file is uploaded, process it
+    if (file) {
+      newFilename = `forms/${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+
+      // Upload new file
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('gp-delivery')
+        .upload(newFilename, file.buffer, {
+          contentType: 'application/pdf',
+          upsert: true,
+        });
+
+      if (uploadError) throw new Error('Upload error: ' + uploadError.message);
+
+      // Get new public URL
+      const { data: urlData } = supabaseAdmin.storage
+        .from('gp-delivery')
+        .getPublicUrl(newFilename);
+
+      const pdfUrl = urlData?.publicUrl;
+      if (!pdfUrl) throw new Error('Failed to generate public URL.');
+      updatedPdfUrl = pdfUrl;
+
+      // Delete the old file from storage to avoid orphan files
+      const storagePathPrefix = 'gp-delivery/';
+      const pathIndex = form.pdf_url.indexOf(storagePathPrefix);
+      if (pathIndex !== -1) {
+        const oldFilename = form.pdf_url.slice(pathIndex + storagePathPrefix.length);
+        await supabaseAdmin.storage.from('gp-delivery').remove([oldFilename]);
+      }
+    }
+
+    // 3. Update database record
+    const updates = {};
+    if (name !== undefined) updates.name = name.trim();
+    if (required_documents !== undefined) updates.required_documents = required_documents.trim();
+    updates.pdf_url = updatedPdfUrl;
+
+    const { data, error: dbError } = await supabaseAdmin
+      .from('blank_forms')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (dbError) {
+      // Cleanup newly uploaded file on DB update failure
+      if (file && newFilename) {
+        await supabaseAdmin.storage.from('gp-delivery').remove([newFilename]);
+      }
+      throw dbError;
+    }
+
+    res.json({ form: data, message: 'Blank application form updated successfully.' });
+  } catch (err) {
+    console.error('[Forms] Update error:', err.message);
+    res.status(500).json({ error: 'Failed to update form: ' + err.message });
+  }
+});
+
 module.exports = router;
