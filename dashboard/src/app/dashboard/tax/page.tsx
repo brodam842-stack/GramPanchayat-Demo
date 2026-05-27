@@ -8,7 +8,8 @@ import {
   circulateTaxTemplate,
   triggerMockTaxWebhook,
   deleteTaxRecord,
-  deleteAllTaxRecords
+  deleteAllTaxRecords,
+  notifyTaxRecord
 } from "@/lib/api";
 
 interface TaxRecord {
@@ -71,6 +72,9 @@ export default function PropertyTaxPage() {
 
   // Notification Toast state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+
+  // Individual notification loading state
+  const [isNotifyingId, setIsNotifyingId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -237,6 +241,30 @@ export default function PropertyTaxPage() {
       showToast(err.message || "Failed to circulate alerts", "error");
     } finally {
       setIsCirculating(false);
+    }
+  }
+
+  // Send individual WhatsApp tax due alert
+  async function handleSendIndividualAlert(record: TaxRecord) {
+    if (!templateText) {
+      showToast("Template message cannot be empty", "error");
+      return;
+    }
+
+    const confirmNotify = window.confirm(`Send customized property tax WhatsApp alert to ${record.owner_name} (+91 ${record.mobile_number})?`);
+    if (!confirmNotify) return;
+
+    setIsNotifyingId(record.id);
+    showToast("Generating link & delivering WhatsApp alert...", "info");
+
+    try {
+      const res = await notifyTaxRecord(record.id, templateText);
+      showToast(res.message || "Tax alert sent successfully!", "success");
+      loadRecords();
+    } catch (err: any) {
+      showToast(err.message || "Failed to deliver tax alert", "error");
+    } finally {
+      setIsNotifyingId(null);
     }
   }
 
@@ -512,8 +540,43 @@ export default function PropertyTaxPage() {
                         style={{ cursor: "pointer" }}
                       >
                         <td style={{ fontWeight: 600, color: "#e5e7eb" }}>{record.property_id}</td>
-                        <td style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {record.owner_name}
+                        <td style={{ maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{record.owner_name}</span>
+                            {record.payment_status === "pending" && (
+                              isNotifyingId === record.id ? (
+                                <span style={{
+                                  width: "12px",
+                                  height: "12px",
+                                  border: "2px solid #22c55e",
+                                  borderTopColor: "transparent",
+                                  borderRadius: "50%",
+                                  display: "inline-block",
+                                  animation: "spin 1s linear infinite"
+                                }} />
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSendIndividualAlert(record);
+                                  }}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    padding: 0,
+                                    cursor: "pointer",
+                                    fontSize: "1rem",
+                                    lineHeight: 1,
+                                    display: "inline-flex",
+                                    alignItems: "center"
+                                  }}
+                                  title="Send individual WhatsApp tax alert"
+                                >
+                                  💬
+                                </button>
+                              )
+                            )}
+                          </div>
                         </td>
                         <td>+91 {record.mobile_number}</td>
                         <td style={{ fontWeight: 600 }}>₹{parseFloat(String(record.due_amount)).toFixed(2)}</td>

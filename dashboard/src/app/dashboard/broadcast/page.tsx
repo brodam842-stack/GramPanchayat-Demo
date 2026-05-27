@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { fetchCitizens, uploadBroadcastImage, sendBulkMessage } from "@/lib/api";
+import { fetchCitizens, uploadBroadcastImage, sendBulkMessage, importBroadcastRecipients } from "@/lib/api";
 
 interface Citizen {
   id: string;
@@ -13,7 +13,10 @@ export default function BroadcastPage() {
   const [citizens, setCitizens] = useState<Citizen[]>([]);
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [audienceType, setAudienceType] = useState<"all" | "selected">("all");
+  const [audienceType, setAudienceType] = useState<"all" | "selected" | "imported">("all");
+
+  const [importedContacts, setImportedContacts] = useState<Array<{ name: string; mobile: string }>>([]);
+  const [importingContacts, setImportingContacts] = useState(false);
 
   const [message, setMessage] = useState("Namaskar {name},\n\nThis is an official announcement from your Gram Panchayat. Please review the attachments or details below.\n\nDhanyawad!");
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -29,6 +32,7 @@ export default function BroadcastPage() {
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const contactsFileInputRef = useRef<HTMLInputElement>(null);
 
   // Load active citizens for selector list
   const loadCitizensList = useCallback(async () => {
@@ -118,6 +122,26 @@ export default function BroadcastPage() {
     showToast("info", "Image attachment removed.");
   };
 
+  // Handle contacts sheet import
+  async function handleContactsFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportingContacts(true);
+    showToast("info", "Uploading and parsing contacts sheet... Please wait");
+    try {
+      const res = await importBroadcastRecipients(file);
+      setImportedContacts(res.contacts || []);
+      showToast("success", res.message || "Spreadsheet contacts imported successfully!");
+    } catch (err: any) {
+      console.error(err);
+      showToast("error", err.message || "Failed to parse contacts spreadsheet.");
+    } finally {
+      setImportingContacts(false);
+      if (contactsFileInputRef.current) contactsFileInputRef.current.value = "";
+    }
+  }
+
   // Selection managers
   const handleSelectToggle = (id: string) => {
     setSelectedIds(prev => 
@@ -145,13 +169,27 @@ export default function BroadcastPage() {
       return;
     }
 
-    const recipientsParam = audienceType === "all" ? "all" : selectedIds;
-    if (audienceType === "selected" && selectedIds.length === 0) {
-      showToast("error", "Please select at least one recipient.");
-      return;
-    }
+    let recipientsParam: any = "all";
+    let recipientCount = 0;
 
-    const recipientCount = audienceType === "all" ? citizens.length : selectedIds.length;
+    if (audienceType === "all") {
+      recipientsParam = "all";
+      recipientCount = citizens.length;
+    } else if (audienceType === "selected") {
+      if (selectedIds.length === 0) {
+        showToast("error", "Please select at least one recipient.");
+        return;
+      }
+      recipientsParam = selectedIds;
+      recipientCount = selectedIds.length;
+    } else if (audienceType === "imported") {
+      if (importedContacts.length === 0) {
+        showToast("error", "Please import at least one contact from Excel first.");
+        return;
+      }
+      recipientsParam = { type: "imported", contacts: importedContacts };
+      recipientCount = importedContacts.length;
+    }
 
     setSending(true);
     setProgress({ current: 0, total: recipientCount, success: 0, failed: 0 });
@@ -331,11 +369,11 @@ export default function BroadcastPage() {
             
             <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
               {/* Radio selectors */}
-              <div style={{ display: "flex", gap: "16px" }}>
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                 <div 
                   onClick={() => setAudienceType("all")}
                   style={{
-                    flex: 1, padding: "14px", borderRadius: "12px", border: `1px solid ${audienceType === "all" ? "var(--accent)" : "var(--border)"}`,
+                    flex: "1 1 200px", padding: "14px", borderRadius: "12px", border: `1px solid ${audienceType === "all" ? "var(--accent)" : "var(--border)"}`,
                     background: audienceType === "all" ? "rgba(34,197,94,0.06)" : "var(--bg-secondary)",
                     cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", transition: "all 0.15s"
                   }}
@@ -350,7 +388,7 @@ export default function BroadcastPage() {
                 <div 
                   onClick={() => setAudienceType("selected")}
                   style={{
-                    flex: 1, padding: "14px", borderRadius: "12px", border: `1px solid ${audienceType === "selected" ? "var(--accent)" : "var(--border)"}`,
+                    flex: "1 1 200px", padding: "14px", borderRadius: "12px", border: `1px solid ${audienceType === "selected" ? "var(--accent)" : "var(--border)"}`,
                     background: audienceType === "selected" ? "rgba(34,197,94,0.06)" : "var(--bg-secondary)",
                     cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", transition: "all 0.15s"
                   }}
@@ -361,7 +399,98 @@ export default function BroadcastPage() {
                     <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>({selectedIds.length}) selected recipients</div>
                   </div>
                 </div>
+
+                <div 
+                  onClick={() => setAudienceType("imported")}
+                  style={{
+                    flex: "1 1 200px", padding: "14px", borderRadius: "12px", border: `1px solid ${audienceType === "imported" ? "var(--accent)" : "var(--border)"}`,
+                    background: audienceType === "imported" ? "rgba(34,197,94,0.06)" : "var(--bg-secondary)",
+                    cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", transition: "all 0.15s"
+                  }}
+                >
+                  <span style={{ fontSize: "1.4rem" }}>📊</span>
+                  <div>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 600, color: audienceType === "imported" ? "var(--accent-light)" : "var(--text-primary)" }}>Import Excel</div>
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>({importedContacts.length}) imported contacts</div>
+                  </div>
+                </div>
               </div>
+
+              {/* Excel import upload zone */}
+              {audienceType === "imported" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", border: "1px solid var(--border)", borderRadius: "12px", padding: "16px", background: "var(--bg-secondary)" }}>
+                  <input 
+                    type="file" 
+                    ref={contactsFileInputRef} 
+                    onChange={handleContactsFileChange} 
+                    accept=".xlsx, .xls" 
+                    style={{ display: "none" }} 
+                  />
+                  
+                  {importedContacts.length === 0 ? (
+                    <div 
+                      onClick={() => contactsFileInputRef.current?.click()}
+                      style={{
+                        border: "2px dashed var(--border)",
+                        borderRadius: "12px",
+                        padding: "24px",
+                        textAlign: "center",
+                        background: "rgba(31,41,55,0.4)",
+                        cursor: "pointer",
+                        transition: "border-color 0.2s, background 0.2s"
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--accent)"}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = "var(--border)"}
+                    >
+                      {importingContacts ? (
+                        <div>
+                          <div style={{ fontSize: "1.8rem", animation: "pulse 1.5s infinite" }}>⏳</div>
+                          <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--accent)", marginTop: "8px" }}>Parsing contacts spreadsheet...</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontSize: "2rem" }}>📊</div>
+                          <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-secondary)", marginTop: "6px" }}>Click to import contacts Excel</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>Must contain columns: sr. No. | Name | Mobile No.</div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "14px", background: "#111827", borderRadius: "12px", border: "1px solid var(--border)" }}>
+                        <span style={{ fontSize: "2rem" }}>📊</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#f9fafb" }}>Imported Recipients Sheet</div>
+                          <div style={{ fontSize: "0.72rem", color: "var(--success)", fontWeight: 500, marginTop: "2px" }}>✓ Loaded {importedContacts.length} contacts successfully</div>
+                        </div>
+                        <button type="button" onClick={() => setImportedContacts([])} className="btn btn-danger btn-sm" style={{ padding: "6px 10px" }}>
+                          🗑 Clear
+                        </button>
+                      </div>
+
+                      {/* Mini contacts checklist preview */}
+                      <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid var(--border)", borderRadius: "8px", background: "var(--bg-card)" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr>
+                              <th style={{ padding: "6px 10px", fontSize: "0.68rem", textAlign: "left" }}>Name</th>
+                              <th style={{ padding: "6px 10px", fontSize: "0.68rem", textAlign: "left" }}>Mobile</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {importedContacts.map((c, idx) => (
+                              <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                                <td style={{ padding: "6px 10px", fontSize: "0.75rem", fontWeight: 600 }}>{c.name}</td>
+                                <td style={{ padding: "6px 10px", fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "monospace" }}>+91 {c.mobile}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Checkable Filtered Citizens List */}
               {audienceType === "selected" && (

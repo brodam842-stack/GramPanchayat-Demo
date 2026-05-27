@@ -35,6 +35,48 @@ export default function AuditPage() {
     return <span className={`badge ${map[s] || "badge-gray"}`}>{s}</span>;
   }
 
+  function renderDocCell(doc: string) {
+    if (!doc) return <span>—</span>;
+    const match = doc.match(/^\[([^\]]+)\](.*)$/);
+    if (!match) return <span style={{ color: "#d1d5db" }}>{doc}</span>;
+
+    const category = match[1];
+    const rest = match[2].trim();
+
+    // Map categories to dynamic CSS styles
+    const colors: Record<string, { bg: string; text: string; border: string }> = {
+      "Tax Alert": { bg: "rgba(249, 115, 22, 0.12)", text: "#ffedd5", border: "rgba(249, 115, 22, 0.3)" },
+      "Tax Circular": { bg: "rgba(234, 179, 8, 0.12)", text: "#fef9c3", border: "rgba(234, 179, 8, 0.3)" },
+      "Broadcast": { bg: "rgba(59, 130, 246, 0.12)", text: "#dbeafe", border: "rgba(59, 130, 246, 0.3)" },
+      "Doc Retrieval": { bg: "rgba(16, 185, 129, 0.12)", text: "#d1fae5", border: "rgba(16, 185, 129, 0.3)" },
+      "Form Download": { bg: "rgba(139, 92, 246, 0.12)", text: "#ede9fe", border: "rgba(139, 92, 246, 0.3)" },
+      "Receipt Delivery": { bg: "rgba(20, 184, 166, 0.12)", text: "#ccfbf1", border: "rgba(20, 184, 166, 0.3)" },
+    };
+
+    const scheme = colors[category] || { bg: "rgba(107, 114, 128, 0.12)", text: "#f3f4f6", border: "rgba(107, 114, 128, 0.3)" };
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
+        <span style={{
+          display: "inline-flex",
+          alignItems: "center",
+          padding: "2px 8px",
+          borderRadius: "12px",
+          fontSize: "0.68rem",
+          fontWeight: 600,
+          letterSpacing: "0.03em",
+          textTransform: "uppercase",
+          backgroundColor: scheme.bg,
+          color: scheme.text,
+          border: `1px solid ${scheme.border}`
+        }}>
+          {category}
+        </span>
+        {rest && <span style={{ color: "#d1d5db", fontSize: "0.82rem", display: "block" }}>{rest}</span>}
+      </div>
+    );
+  }
+
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
@@ -97,7 +139,7 @@ export default function AuditPage() {
                     <div style={{ fontSize: "0.72rem", color: "#6b7280" }}>{t.citizens?.village || ""}</div>
                   </td>
                   <td><span style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "#9ca3af" }}>{t.whatsapp_number.replace("whatsapp:", "")}</span></td>
-                  <td><span style={{ color: "#d1d5db" }}>{t.document_requested || "—"}</span></td>
+                  <td>{renderDocCell(t.document_requested)}</td>
                   <td>
                     <div style={{ fontSize: "0.8rem", color: "#d1d5db" }}>
                       {new Date(t.request_timestamp).toLocaleDateString("en-IN")}

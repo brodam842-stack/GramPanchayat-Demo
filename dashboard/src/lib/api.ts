@@ -238,4 +238,33 @@ export async function deleteAllTaxRecords() {
   });
 }
 
+export async function notifyTaxRecord(id: string, template: string) {
+  return apiFetch(`/api/tax/record/${id}/notify`, {
+    method: "POST",
+    body: JSON.stringify({ template }),
+  });
+}
+
+export async function importBroadcastRecipients(file: File) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API}/api/broadcast/import-recipients`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("gp_token");
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
 export { apiFetch };
