@@ -163,6 +163,32 @@ export async function deleteForm(id: string) {
   return apiFetch(`/api/forms/${id}`, { method: "DELETE" });
 }
 
+export async function updateForm(id: string, name: string, requiredDocuments: string, file?: File) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("name", name);
+  formData.append("required_documents", requiredDocuments);
+  if (file) {
+    formData.append("file", file);
+  }
+
+  const res = await fetch(`${API}/api/forms/${id}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("gp_token");
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
 // ── Property Tax ─────────────────────────────────────────────────────────────
 export async function fetchTaxRecords(page = 1, limit = 10, search = "", status = "", sortBy = "created_at", sortOrder = "desc") {
   const params = new URLSearchParams({

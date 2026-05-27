@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { fetchForms, createForm, deleteForm } from "@/lib/api";
+import { fetchForms, createForm, deleteForm, updateForm } from "@/lib/api";
 
 interface BlankForm {
   id: string;
@@ -18,6 +18,7 @@ export default function BlankFormsPage() {
   const [formName, setFormName] = useState("");
   const [requiredDocs, setRequiredDocs] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [editingFormId, setEditingFormId] = useState<string | null>(null);
   
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
@@ -68,37 +69,63 @@ export default function BlankFormsPage() {
     showToast("success", `Attached: ${file.name}`);
   };
 
-  // Add a new application form
-  const handleAddForm = async (e: React.FormEvent) => {
+  // Start editing a form
+  const handleStartEdit = (form: BlankForm) => {
+    setEditingFormId(form.id);
+    setFormName(form.name);
+    setRequiredDocs(form.required_documents);
+    setSelectedFile(null); // Clear any file selected for new uploads
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    showToast("info", `Editing "${form.name}"...`);
+  };
+
+  // Cancel edit mode
+  const handleCancelEdit = () => {
+    setEditingFormId(null);
+    setFormName("");
+    setRequiredDocs("");
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // Save (Create or Update) application form
+  const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formName.trim() || !requiredDocs.trim()) {
       showToast("error", "Please provide a form name and a list of required documents.");
       return;
     }
-    if (!selectedFile) {
+    if (!editingFormId && !selectedFile) {
       showToast("error", "Please attach a blank PDF application form.");
       return;
     }
 
     setSubmitting(true);
-    showToast("info", "Uploading blank form PDF and saving configuration...");
 
     try {
-      await createForm(formName, requiredDocs, selectedFile);
-      showToast("success", "Application form successfully created and is now live on WhatsApp!");
-      
-      // Reset form
-      setFormName("");
-      setRequiredDocs("");
-      setSelectedFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (editingFormId) {
+        showToast("info", "Saving changes to application form...");
+        await updateForm(editingFormId, formName, requiredDocs, selectedFile || undefined);
+        showToast("success", "Application form successfully updated and changes are live!");
+        handleCancelEdit();
+      } else {
+        showToast("info", "Uploading blank form PDF and saving configuration...");
+        await createForm(formName, requiredDocs, selectedFile!);
+        showToast("success", "Application form successfully created and is now live on WhatsApp!");
+        
+        // Reset form
+        setFormName("");
+        setRequiredDocs("");
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
       
       // Reload list
       loadFormsList();
     } catch (err: any) {
-      console.error("Failed to add form:", err);
-      showToast("error", err.message || "Failed to create application form.");
+      console.error("Failed to save form:", err);
+      showToast("error", err.message || `Failed to ${editingFormId ? "update" : "create"} application form.`);
     } finally {
       setSubmitting(false);
     }
@@ -114,6 +141,9 @@ export default function BlankFormsPage() {
     try {
       await deleteForm(id);
       showToast("success", "Application form deleted successfully.");
+      if (editingFormId === id) {
+        handleCancelEdit();
+      }
       loadFormsList();
     } catch (err: any) {
       console.error("Deletion failed:", err);
@@ -144,14 +174,14 @@ export default function BlankFormsPage() {
       {/* ── Main Two-Column Layout ── */}
       <div className="grid-3" style={{ gridTemplateColumns: "1.20fr 1.80fr", gap: "28px" }}>
         
-        {/* Left Column: Create Form */}
+        {/* Left Column: Create/Edit Form */}
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
           <div className="card">
             <h2 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "16px", color: "var(--text-primary)" }}>
-              ➕ Configure New Form
+              {editingFormId ? "✏️ Edit Application Form" : "➕ Configure New Form"}
             </h2>
 
-            <form onSubmit={handleAddForm} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <form onSubmit={handleSaveForm} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {/* Form name */}
               <div className="form-group">
                 <label className="form-label">Form Name</label>
@@ -183,7 +213,9 @@ export default function BlankFormsPage() {
 
               {/* PDF uploader */}
               <div className="form-group">
-                <label className="form-label">Blank Form PDF</label>
+                <label className="form-label">
+                  {editingFormId ? "Blank Form PDF (Optional)" : "Blank Form PDF"}
+                </label>
                 {!selectedFile ? (
                   <div 
                     onClick={() => !submitting && fileInputRef.current?.click()}
@@ -200,8 +232,12 @@ export default function BlankFormsPage() {
                     onMouseLeave={(e) => { if (!submitting) e.currentTarget.style.borderColor = "var(--border)"; }}
                   >
                     <div style={{ fontSize: "1.6rem" }}>📄</div>
-                    <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", marginTop: "6px" }}>Attach Blank Form PDF</div>
-                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "2px" }}>Only PDFs are accepted (Max 15MB)</div>
+                    <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", marginTop: "6px" }}>
+                      {editingFormId ? "Replace Blank Form PDF" : "Attach Blank Form PDF"}
+                    </div>
+                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                      {editingFormId ? "Leave empty to keep existing PDF" : "Only PDFs are accepted (Max 15MB)"}
+                    </div>
                   </div>
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111827", borderRadius: "10px", border: "1px solid var(--border)" }}>
@@ -228,10 +264,26 @@ export default function BlankFormsPage() {
                 />
               </div>
 
-              {/* Submit */}
-              <button type="submit" disabled={submitting} className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: "8px" }}>
-                {submitting ? "⏳ Creating Form..." : "🚀 Publish Application Form"}
-              </button>
+              {/* Submit & Cancel */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
+                <button type="submit" disabled={submitting} className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }}>
+                  {submitting 
+                    ? (editingFormId ? "⏳ Saving Changes..." : "⏳ Creating Form...") 
+                    : (editingFormId ? "💾 Save Changes" : "🚀 Publish Application Form")}
+                </button>
+                
+                {editingFormId && (
+                  <button 
+                    type="button" 
+                    disabled={submitting} 
+                    onClick={handleCancelEdit} 
+                    className="btn btn-secondary" 
+                    style={{ width: "100%", justifyContent: "center", borderColor: "var(--border-light)" }}
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
             </form>
           </div>
         </div>
@@ -293,14 +345,27 @@ export default function BlankFormsPage() {
                     </div>
 
                     {/* Actions */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", justifyContent: "space-between", alignItems: "flex-end" }}>
-                      <a href={form.pdf_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ border: "1px solid var(--border-light)", textDecoration: "none", fontSize: "0.75rem", padding: "6px 10px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", justifyContent: "center", alignItems: "flex-end", minWidth: "100px" }}>
+                      <a 
+                        href={form.pdf_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="btn btn-secondary btn-sm" 
+                        style={{ border: "1px solid var(--border-light)", textDecoration: "none", fontSize: "0.75rem", padding: "6px 10px", width: "100%", textAlign: "center" }}
+                      >
                         📥 View PDF
                       </a>
                       <button 
+                        onClick={() => handleStartEdit(form)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: "0.75rem", padding: "6px 10px", width: "100%", borderColor: "var(--border-light)" }}
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button 
                         onClick={() => handleDeleteForm(form.id, form.name)}
                         className="btn btn-danger btn-sm"
-                        style={{ fontSize: "0.75rem", padding: "6px 10px" }}
+                        style={{ fontSize: "0.75rem", padding: "6px 10px", width: "100%" }}
                       >
                         🗑 Delete
                       </button>
