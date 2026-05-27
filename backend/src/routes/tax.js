@@ -8,6 +8,7 @@ const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const { authenticate } = require('./auth');
 const { supabaseAdmin } = require('../config/supabase');
 const { sendMessage, sendMedia } = require('../config/twilio');
+const { logTransaction } = require('../services/authService');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -202,6 +203,17 @@ router.post('/import', authenticate, upload.single('file'), async (req, res) => 
     const sheet     = workbook.Sheets[sheetName];
     const rows      = xlsx.utils.sheet_to_json(sheet, { header: 1 });
 
+    // Fetch existing records' mobile numbers for duplicate checking
+    const { data: existingRecords, error: fetchErr } = await supabaseAdmin
+      .from('tax_records')
+      .select('mobile_number');
+
+    if (fetchErr) throw fetchErr;
+
+    const existingMobiles = new Set((existingRecords || []).map(r => r.mobile_number ? r.mobile_number.toString().trim() : ''));
+    const processedMobilesInSheet = new Set();
+    let duplicateCount = 0;
+
     const importedRecords = [];
     
     // Self-healing parsing starting from row 4 (index 3) to skip metadata/titles
@@ -234,8 +246,17 @@ router.post('/import', authenticate, upload.single('file'), async (req, res) => 
       // If no valid mobile number is found, we can skip or set a default placeholder
       if (!mobileNumber) continue;
 
+      // Check for duplicate by mobile number (either in DB or already processed in this sheet)
+      if (existingMobiles.has(mobileNumber) || processedMobilesInSheet.has(mobileNumber)) {
+        duplicateCount++;
+        continue;
+      }
+      processedMobilesInSheet.add(mobileNumber);
+
+      const parsedInt = parseInt(propertyId.toString().replace(/[^0-9]/g, ''), 10);
       importedRecords.push({
         property_id: propertyId,
+        property_id_int: isNaN(parsedInt) ? null : parsedInt,
         owner_name: ownerName || 'Property Holder',
         due_amount: dueAmount,
         mobile_number: mobileNumber,
@@ -244,7 +265,11 @@ router.post('/import', authenticate, upload.single('file'), async (req, res) => 
     }
 
     if (importedRecords.length === 0) {
-      return res.status(400).json({ error: 'No valid pending tax records found in the Excel sheet.' });
+      return res.json({
+        message: `Import complete! All ${duplicateCount} records in the Excel sheet were identified as duplicates and skipped.`,
+        imported: 0,
+        duplicates: duplicateCount
+      });
     }
 
     // Upsert into Supabase (match by property_id)
@@ -255,8 +280,9 @@ router.post('/import', authenticate, upload.single('file'), async (req, res) => 
     if (error) throw error;
 
     res.json({
-      message: `Successfully imported and updated ${importedRecords.length} property tax records!`,
-      count: importedRecords.length
+      message: `Import complete! Successfully imported ${importedRecords.length} tax records and skipped ${duplicateCount} duplicate records.`,
+      imported: importedRecords.length,
+      duplicates: duplicateCount
     });
   } catch (err) {
     console.error('[Tax] Import error:', err.message);
@@ -290,11 +316,19 @@ router.get('/records', authenticate, async (req, res) => {
     const toOffset   = fromOffset + limit - 1;
 
     const allowedSortBy = ['created_at', 'property_id', 'due_amount', 'owner_name'];
-    const actualSortBy = allowedSortBy.includes(sortBy) ? sortBy : 'created_at';
+    let actualSortBy = allowedSortBy.includes(sortBy) ? sortBy : 'created_at';
     const ascending = sortOrder === 'asc';
 
-    const { data, count, error } = await query
-      .order(actualSortBy, { ascending })
+    let orderQuery = query;
+    if (actualSortBy === 'property_id') {
+      orderQuery = query
+        .order('property_id_int', { ascending, nullsFirst: false })
+        .order('property_id', { ascending });
+    } else {
+      orderQuery = query.order(actualSortBy, { ascending });
+    }
+
+    const { data, count, error } = await orderQuery
       .range(fromOffset, toOffset);
 
     if (error) throw error;
@@ -353,10 +387,12 @@ router.post('/record', authenticate, async (req, res) => {
   }
 
   try {
+    const parsedInt = parseInt(propertyId.toString().replace(/[^0-9]/g, ''), 10);
     const { data, error } = await supabaseAdmin
       .from('tax_records')
       .insert({
         property_id: propertyId.trim(),
+        property_id_int: isNaN(parsedInt) ? null : parsedInt,
         owner_name: ownerName.trim(),
         due_amount: parseFloat(dueAmount),
         mobile_number: mobileNumber.replace(/[^0-9]/g, ''),
@@ -380,10 +416,12 @@ router.put('/record/:id', authenticate, async (req, res) => {
   const { propertyId, ownerName, dueAmount, mobileNumber, paymentStatus } = req.body;
 
   try {
+    const parsedInt = propertyId ? parseInt(propertyId.toString().replace(/[^0-9]/g, ''), 10) : NaN;
     const { data, error } = await supabaseAdmin
       .from('tax_records')
       .update({
         property_id: propertyId?.trim(),
+        property_id_int: isNaN(parsedInt) ? undefined : parsedInt,
         owner_name: ownerName?.trim(),
         due_amount: dueAmount ? parseFloat(dueAmount) : undefined,
         mobile_number: mobileNumber ? mobileNumber.replace(/[^0-9]/g, '') : undefined,
@@ -400,6 +438,121 @@ router.put('/record/:id', authenticate, async (req, res) => {
   } catch (err) {
     console.error('[Tax] Manual edit error:', err.message);
     res.status(500).json({ error: 'Failed to update tax record: ' + err.message });
+  }
+});
+
+// ─── POST /api/tax/record/:id/notify (Individual WhatsApp Notification) ────────
+router.post('/record/:id/notify', authenticate, async (req, res) => {
+  const { id } = req.params;
+  const { template } = req.body;
+
+  if (!template) {
+    return res.status(400).json({ error: 'Message template content is required.' });
+  }
+
+  try {
+    // 1. Fetch the tax record
+    const { data: record, error: fetchErr } = await supabaseAdmin
+      .from('tax_records')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !record) {
+      return res.status(404).json({ error: 'Tax record not found.' });
+    }
+
+    let paymentLink = record.payment_link;
+
+    // 2. Generate Razorpay Payment Link if not already generated
+    if (!paymentLink) {
+      if (razorpay) {
+        try {
+          const linkData = await razorpay.paymentLink.create({
+            amount: Math.round(record.due_amount * 100), // Paise
+            currency: 'INR',
+            accept_partial: false,
+            description: `Property Tax Due for Property ID: ${record.property_id}`,
+            customer: {
+              name: record.owner_name,
+              contact: `+91${record.mobile_number}`
+            },
+            notify: { sms: false, email: false },
+            reminder_enable: true,
+            callback_url: `${process.env.PUBLIC_URL || 'http://localhost:3000'}/api/tax/callback`,
+            callback_method: 'get'
+          });
+
+          paymentLink = linkData.short_url;
+
+          // Update record in Supabase
+          await supabaseAdmin
+            .from('tax_records')
+            .update({
+              razorpay_payment_link_id: linkData.id,
+              payment_link: paymentLink
+            })
+            .eq('id', record.id);
+
+        } catch (rzpErr) {
+          console.error(`[Razorpay] Individual link generation failed for ${record.owner_name}:`, rzpErr.message);
+          return res.status(500).json({ error: 'Failed to generate payment link: ' + rzpErr.message });
+        }
+      } else {
+        // Mock mode fallback
+        paymentLink = `https://rzp.io/i/mock_tax_${record.id.substring(0, 8)}`;
+        await supabaseAdmin
+          .from('tax_records')
+          .update({ payment_link: paymentLink })
+          .eq('id', record.id);
+      }
+    }
+
+    if (!paymentLink) {
+      return res.status(500).json({ error: 'Unable to secure payment link for taxpayer.' });
+    }
+
+    // 3. Compile customized template message
+    let msg = template
+      .replace(/{owner_name}/gi, record.owner_name)
+      .replace(/{property_id}/gi, record.property_id)
+      .replace(/{due_amount}/gi, parseFloat(record.due_amount).toFixed(2))
+      .replace(/{payment_link}/gi, paymentLink);
+
+    const formattedTo = `whatsapp:+91${record.mobile_number}`;
+
+    // 4. Send WhatsApp message
+    try {
+      await sendMessage(formattedTo, msg);
+
+      // 5. Log successful transaction
+      await logTransaction({
+        citizenId: null,
+        whatsappNumber: formattedTo,
+        documentRequested: `[Tax Alert] Property ID: ${record.property_id}`,
+        status: 'success',
+        sessionId: null,
+      });
+
+      res.json({ message: `Successfully sent tax alert to ${record.owner_name} (+91 ${record.mobile_number})!` });
+    } catch (twilioErr) {
+      console.error(`[Twilio] Individual tax alert failed for ${record.mobile_number}:`, twilioErr.message);
+
+      // Log failed transaction
+      await logTransaction({
+        citizenId: null,
+        whatsappNumber: formattedTo,
+        documentRequested: `[Tax Alert] Property ID: ${record.property_id}`,
+        status: 'failed',
+        failureReason: twilioErr.message,
+        sessionId: null,
+      });
+
+      res.status(500).json({ error: 'Twilio delivery failed: ' + twilioErr.message });
+    }
+  } catch (err) {
+    console.error('[Tax] Individual notify error:', err.message);
+    res.status(500).json({ error: 'Failed to send individual notification: ' + err.message });
   }
 });
 
@@ -522,9 +675,28 @@ router.post('/circulate', authenticate, async (req, res) => {
 
       try {
         await sendMessage(formattedTo, msg);
+
+        await logTransaction({
+          citizenId: null,
+          whatsappNumber: formattedTo,
+          documentRequested: `[Tax Circular] Property ID: ${record.property_id}`,
+          status: 'success',
+          sessionId: null,
+        });
+
         report.success++;
       } catch (twilioErr) {
         console.error(`[Twilio] Bulk tax alert failed for ${record.mobile_number}:`, twilioErr.message);
+
+        await logTransaction({
+          citizenId: null,
+          whatsappNumber: formattedTo,
+          documentRequested: `[Tax Circular] Property ID: ${record.property_id}`,
+          status: 'failed',
+          failureReason: twilioErr.message,
+          sessionId: null,
+        });
+
         report.failed++;
       }
     }
@@ -684,8 +856,25 @@ router.post('/webhook', async (req, res) => {
       try {
         await sendMedia(formattedTo, caption, publicPdfUrl);
         console.log(`[Webhook] Receipt sent successfully to ${record.mobile_number}`);
+
+        await logTransaction({
+          citizenId: record.citizen_id || null,
+          whatsappNumber: formattedTo,
+          documentRequested: `[Receipt Delivery] Property ID: ${record.property_id}`,
+          status: 'success',
+          sessionId: null,
+        });
       } catch (twilioErr) {
         console.warn(`[Webhook] Warning: payment confirmed but WhatsApp receipt delivery failed: ${twilioErr.message}`);
+
+        await logTransaction({
+          citizenId: record.citizen_id || null,
+          whatsappNumber: formattedTo,
+          documentRequested: `[Receipt Delivery] Property ID: ${record.property_id}`,
+          status: 'failed',
+          failureReason: twilioErr.message,
+          sessionId: null,
+        });
       }
     }
 

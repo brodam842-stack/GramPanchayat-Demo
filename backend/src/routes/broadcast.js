@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const multer  = require('multer');
+const xlsx    = require('xlsx');
 const { authenticate } = require('./auth');
 const { supabaseAdmin } = require('../config/supabase');
 const { client, sendMessage, sendMedia } = require('../config/twilio');
@@ -47,6 +48,81 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 });
 
 /**
+ * POST /api/broadcast/import-recipients
+ * Parses an Excel file with columns (sr. No. | Name | Mobile No. |)
+ * Returns a list of contacts.
+ */
+router.post('/import-recipients', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'Please upload an Excel file.' });
+
+  try {
+    const workbook = xlsx.read(file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet     = workbook.Sheets[sheetName];
+    const rows      = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    const contacts = [];
+    
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+
+      // Skip row if it looks like a header (e.g. contains words like "name", "mobile", "sr" lowercase)
+      const rowStr = row.join(' ').toLowerCase();
+      if (rowStr.includes('sr. no') || rowStr.includes('mobile no') || rowStr.includes('serial no')) {
+        continue;
+      }
+
+      // Try to find a mobile number in the cells:
+      let mobileNumber = '';
+      let name = '';
+
+      for (const cell of row) {
+        if (cell !== undefined && cell !== null) {
+          const cleaned = cell.toString().replace(/[^0-9]/g, '');
+          if (cleaned.length === 10 && /^[6-9]\d{9}$/.test(cleaned)) {
+            mobileNumber = cleaned;
+            break;
+          }
+        }
+      }
+
+      // If we found a mobile number, find the name.
+      if (mobileNumber) {
+        // Look for a non-numeric string cell that is not the mobile number or header labels
+        for (const cell of row) {
+          if (cell !== undefined && cell !== null) {
+            const val = cell.toString().trim();
+            if (val && isNaN(val) && val !== mobileNumber && val.toLowerCase() !== 'name') {
+              name = val;
+              break;
+            }
+          }
+        }
+
+        contacts.push({
+          name: name || 'Valued Citizen',
+          mobile: mobileNumber
+        });
+      }
+    }
+
+    if (contacts.length === 0) {
+      return res.status(400).json({ error: 'No valid contacts with 10-digit mobile numbers found in the Excel sheet.' });
+    }
+
+    res.json({
+      message: `Successfully parsed ${contacts.length} contacts from the Excel sheet!`,
+      contacts
+    });
+  } catch (err) {
+    console.error('[Broadcast] Import recipients error:', err.message);
+    res.status(500).json({ error: 'Failed to parse spreadsheet: ' + err.message });
+  }
+});
+
+/**
  * POST /api/broadcast/send
  * Sends personalized broadcast messages to all or selected active citizens
  */
@@ -71,6 +147,15 @@ router.post('/send', async (req, res) => {
       
       if (error) throw error;
       citizens = data || [];
+    } else if (typeof recipients === 'object' && recipients.type === 'imported' && Array.isArray(recipients.contacts)) {
+      if (recipients.contacts.length === 0) {
+        return res.status(400).json({ error: 'Imported contacts list cannot be empty.' });
+      }
+      citizens = recipients.contacts.map((c, index) => ({
+        id: null, // No citizen ID since they are imported one-off contacts
+        full_name: c.name || 'Valued Citizen',
+        mobile_number: c.mobile
+      }));
     } else if (Array.isArray(recipients)) {
       if (recipients.length === 0) {
         return res.status(400).json({ error: 'Recipients array cannot be empty.' });
@@ -156,7 +241,7 @@ router.post('/send', async (req, res) => {
           await logTransaction({
             citizenId: citizen.id,
             whatsappNumber: formattedTo,
-            documentRequested: `Broadcast: ${message.slice(0, 25)}...`,
+            documentRequested: `[Broadcast] ${message.slice(0, 40)}...`,
             status: 'success',
             sessionId: null,
           });
@@ -174,7 +259,7 @@ router.post('/send', async (req, res) => {
           await logTransaction({
             citizenId: citizen.id,
             whatsappNumber: formattedTo,
-            documentRequested: `Broadcast: ${message.slice(0, 25)}...`,
+            documentRequested: `[Broadcast] ${message.slice(0, 40)}...`,
             status: 'failed',
             failureReason: failureReason,
             sessionId: null,
@@ -195,7 +280,7 @@ router.post('/send', async (req, res) => {
         await logTransaction({
           citizenId: citizen.id,
           whatsappNumber: formattedTo,
-          documentRequested: `Broadcast: ${message.slice(0, 25)}...`,
+          documentRequested: `[Broadcast] ${message.slice(0, 40)}...`,
           status: 'failed',
           failureReason: sendErr.message,
           sessionId: null,

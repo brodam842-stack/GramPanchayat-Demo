@@ -288,7 +288,7 @@ async function handleMessage(from, body, msgSid) {
         await logTransaction({
           citizenId: null,
           whatsappNumber: from,
-          documentRequested: `Form: ${selectedForm.name}`,
+          documentRequested: `[Form Download] ${selectedForm.name}`,
           status: 'success',
           sessionId: session.id,
         });
@@ -594,7 +594,7 @@ async function handleMessage(from, body, msgSid) {
           await logTransaction({
             citizenId: session.citizenId,
             whatsappNumber: from,
-            documentRequested: selectedDoc.label,
+            documentRequested: `[Doc Retrieval] ${selectedDoc.label}`,
             status: 'success',
             sessionId: session.id,
           });
@@ -627,7 +627,7 @@ async function handleMessage(from, body, msgSid) {
           await logTransaction({
             citizenId: session.citizenId,
             whatsappNumber: from,
-            documentRequested: selectedDoc.label,
+            documentRequested: `[Doc Retrieval] ${selectedDoc.label}`,
             status: 'failed',
             failureReason: err.message,
             sessionId: session.id,

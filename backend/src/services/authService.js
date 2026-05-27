@@ -112,7 +112,7 @@ function verifyAadhaar(inputAadhaar, encrypted, last4) {
  */
 async function logTransaction({ citizenId, whatsappNumber, documentRequested, status, failureReason, sessionId }) {
   try {
-    await supabaseAdmin.from('transaction_logs').insert({
+    const { error } = await supabaseAdmin.from('transaction_logs').insert({
       citizen_id: citizenId,
       whatsapp_number: whatsappNumber,
       document_requested: documentRequested,
@@ -121,6 +121,9 @@ async function logTransaction({ citizenId, whatsappNumber, documentRequested, st
       failure_reason: failureReason || null,
       session_id: sessionId,
     });
+    if (error) {
+      console.error('[Auth] Supabase error logging transaction:', error.message, error.details);
+    }
   } catch (err) {
     console.error('[Auth] Failed to log transaction:', err.message);
   }
